@@ -1,0 +1,7 @@
+{
+  "builtin-baseline": "eb35a05cc21c69ec1399f7532b7dd61d271ac0d1",
+  "dependencies": [
+    "cwalk",
+    "sdl3"
+  ]
+}
