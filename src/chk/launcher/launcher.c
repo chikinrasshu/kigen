@@ -14,6 +14,7 @@ typedef struct LauncherImpl {
 
 LAUNCHER_LOCAL B8 Launcher_UpdateVP(Launcher* launcher);
 LAUNCHER_LOCAL B8 Launcher_UpdateRT(Launcher* launcher);
+LAUNCHER_LOCAL B8 Launcher_UpdateTheme(Launcher* launcher);
 
 LAUNCHER_API B8 Launcher_Init(Launcher* launcher, CStr title, V2 size, V2 res) {
   B8 result = false;
@@ -59,20 +60,28 @@ LAUNCHER_API B8 Launcher_Init(Launcher* launcher, CStr title, V2 size, V2 res) {
           SDL_GetWindowSize(impl->win, &tmpA, &tmpB);
           launcher->rect.size.w = (F32)tmpA * pixelDensity;
           launcher->rect.size.h = (F32)tmpB * pixelDensity;
+
+          // Theme
+          SDL_SystemTheme theme = SDL_GetSystemTheme();
+          launcher->isDarkMode  = (theme == SDL_SYSTEM_THEME_DARK);
         }
 
         if (Launcher_UpdateVP(launcher)) {
           if (Launcher_UpdateRT(launcher)) {
-            if (SDL_ShowWindow(impl->win)) {
-              if (Timer_Init(&launcher->timer)) {
-                launcher->isRunning = true;
+            if (Launcher_UpdateTheme(launcher)) {
+              if (SDL_ShowWindow(impl->win)) {
+                if (Timer_Init(&launcher->timer)) {
+                  launcher->isRunning = true;
 
-                result = true;
+                  result = true;
+                } else {
+                  Log_Error("Failed to initialize timer");
+                }
               } else {
-                Log_Error("Failed to initialize timer");
+                Log_Error("Failed to show window: %s", SDL_GetError());
               }
             } else {
-              Log_Error("Failed to show window: %s", SDL_GetError());
+              Log_Error("Failed to update theme");
             }
           } else {
             Log_Error("Failed to update render target");
@@ -126,6 +135,7 @@ LAUNCHER_API B8 Launcher_Step(Launcher* launcher) {
       LauncherImpl* impl  = launcher->impl;
       Input*        input = &launcher->input;
       Timer*        timer = &launcher->timer;
+      Palette*      pal   = &launcher->palette;
 
       // Pre frame
       Timer_Update(&launcher->timer);
@@ -136,18 +146,11 @@ LAUNCHER_API B8 Launcher_Step(Launcher* launcher) {
       input->mouse.pos   = V2_Scale(V2_Sub(input->mouse.pos, launcher->rect.pos), pixelDensity);
       input->mouse.delta = V2_Sub(input->mouse.pos, oldMousePos);
 
-      // Cycle bg color for fun
-      static RGBA bgCol = {0.1f, 0.2f, 0.3f, 1.0f};
-      HSLA        bgHue = HSLA_FromRGBA(bgCol);
-      bgHue.h += 0.25f * timer->deltaTime;
-      if (bgHue.h > 1.0f) { bgHue.h -= 1.0f; }
-      bgCol = RGBA_FromHSLA(bgHue);
-
       // Render frame
       B8 blit = false;
       if (impl->rt) {
         if (SDL_SetRenderTarget(impl->ctx, impl->rt)) {
-          SDL_SetRenderDrawColorFloat(impl->ctx, bgCol.r, bgCol.g, bgCol.b, bgCol.a);
+          SDL_SetRenderDrawColorFloat(impl->ctx, pal->bg.r, pal->bg.g, pal->bg.b, pal->bg.a);
           SDL_RenderClear(impl->ctx);
 
           F32 cx = launcher->res.w * 0.5f;
@@ -157,9 +160,9 @@ LAUNCHER_API B8 Launcher_Step(Launcher* launcher) {
           F32 my = Floor(((input->mouse.pos.y - launcher->vp.pos.y) / launcher->vp.size.h) * launcher->res.h);
 
           if (Input_MouseBtn(input, MouseBtn_Left).down) {
-            SDL_SetRenderDrawColorFloat(impl->ctx, 1.0f, 0.0f, 0.0f, 1.0f);
+            SDL_SetRenderDrawColorFloat(impl->ctx, pal->accent.r, pal->accent.g, pal->accent.b, pal->accent.a);
           } else {
-            SDL_SetRenderDrawColorFloat(impl->ctx, 0.5f, 0.0f, 0.0f, 1.0f);
+            SDL_SetRenderDrawColorFloat(impl->ctx, pal->fg.r, pal->fg.g, pal->fg.b, pal->fg.a);
           }
           SDL_RenderLine(impl->ctx, cx, cy, mx, my);
 
@@ -168,7 +171,7 @@ LAUNCHER_API B8 Launcher_Step(Launcher* launcher) {
       }
 
       if (SDL_SetRenderTarget(impl->ctx, NULL)) {
-        SDL_SetRenderDrawColorFloat(impl->ctx, 0.0f, 0.1f, 0.2f, 1.0f);
+        SDL_SetRenderDrawColorFloat(impl->ctx, pal->desk.r, pal->desk.g, pal->desk.b, pal->desk.a);
         SDL_RenderClear(impl->ctx);
 
         if (blit) {
@@ -285,6 +288,15 @@ LAUNCHER_API B8 Launcher_Event(Launcher* launcher, Handle rawEvent) {
             input->keyboard.key[key].pressed  = !wasDown && isDown;
             input->keyboard.key[key].released = wasDown && !isDown;
           } break;
+
+            // Dark mode
+
+          case SDL_EVENT_SYSTEM_THEME_CHANGED: {
+            SDL_SystemTheme theme = SDL_GetSystemTheme();
+            launcher->isDarkMode  = (theme == SDL_SYSTEM_THEME_DARK);
+
+            Launcher_UpdateTheme(launcher);
+          } break;
         }
 
         result = true;
@@ -373,6 +385,26 @@ LAUNCHER_LOCAL B8 Launcher_UpdateRT(Launcher* launcher) {
       } else {
         result = true;
       }
+    } else {
+      Log_Error("launcher implementation is NULL");
+    }
+  } else {
+    Log_Error("launcher is NULL");
+  }
+
+  return result;
+}
+
+LAUNCHER_LOCAL B8 Launcher_UpdateTheme(Launcher* launcher) {
+  B8 result = false;
+
+  if (launcher) {
+    if (launcher->impl) {
+      LauncherImpl* impl = launcher->impl;
+
+      launcher->palette = Palette_GetDefault(launcher->isDarkMode);
+
+      result = true;
     } else {
       Log_Error("launcher implementation is NULL");
     }

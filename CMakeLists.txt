@@ -30,11 +30,13 @@ chk_add(NAME Launcher KIND lib
     HDR
     "launcher.h"
     "input.h"
+    "palette.h"
     "timer.h"
 
     SRC
     "launcher.c"
     "input.c"
+    "palette.c"
     "timer.c"
 
     PUB
