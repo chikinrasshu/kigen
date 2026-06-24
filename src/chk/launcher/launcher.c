@@ -1,4 +1,5 @@
-#include <chk/Launcher/launcher.h>
+#include "SDL3/SDL_mouse.h"
+#include <chk/launcher/launcher.h>
 
 #include <chk/core/log.h>
 #include <chk/core/math.h>
@@ -48,12 +49,13 @@ LAUNCHER_API B8 Launcher_Init(Launcher* launcher, CStr title, V2 size, V2 res) {
         }
 
         {
-          F32 pixelDensity = SDL_GetWindowPixelDensity(impl->win);
-
+          // Already in pixels
           S32 tmpA, tmpB;
           SDL_GetWindowPosition(impl->win, &tmpA, &tmpB);
-          launcher->rect.pos.x = (F32)tmpA * pixelDensity;
-          launcher->rect.pos.y = (F32)tmpB * pixelDensity;
+          launcher->rect.pos.x = (F32)tmpA, launcher->rect.pos.y = (F32)tmpB;
+
+          // Convert to pixels
+          F32 pixelDensity = SDL_GetWindowPixelDensity(impl->win);
           SDL_GetWindowSize(impl->win, &tmpA, &tmpB);
           launcher->rect.size.w = (F32)tmpA * pixelDensity;
           launcher->rect.size.h = (F32)tmpB * pixelDensity;
@@ -115,13 +117,35 @@ LAUNCHER_API B8 Launcher_Step(Launcher* launcher) {
 
   if (launcher) {
     if (launcher->impl) {
-      LauncherImpl* impl = launcher->impl;
+      LauncherImpl* impl  = launcher->impl;
+      Input*        input = &launcher->input;
 
+      // Pre frame
+      V2  oldMousePos  = input->mouse.pos;
+      F32 pixelDensity = SDL_GetWindowPixelDensity(impl->win);
+      SDL_GetGlobalMouseState(&input->mouse.pos.x, &input->mouse.pos.y);
+      input->mouse.pos   = V2_Scale(V2_Sub(input->mouse.pos, launcher->rect.pos), pixelDensity);
+      input->mouse.delta = V2_Sub(input->mouse.pos, oldMousePos);
+
+      // Render frame
       B8 blit = false;
       if (impl->rt) {
         if (SDL_SetRenderTarget(impl->ctx, impl->rt)) {
           SDL_SetRenderDrawColorFloat(impl->ctx, 0.1f, 0.2f, 0.3f, 1.0f);
           SDL_RenderClear(impl->ctx);
+
+          F32 cx = launcher->res.w * 0.5f;
+          F32 cy = launcher->res.h * 0.5f;
+
+          F32 mx = Floor(((input->mouse.pos.x - launcher->vp.pos.x) / launcher->vp.size.w) * launcher->res.w);
+          F32 my = Floor(((input->mouse.pos.y - launcher->vp.pos.y) / launcher->vp.size.h) * launcher->res.h);
+
+          if (Input_MouseBtn(input, MouseBtn_Left).down) {
+            SDL_SetRenderDrawColorFloat(impl->ctx, 1.0f, 0.0f, 0.0f, 1.0f);
+          } else {
+            SDL_SetRenderDrawColorFloat(impl->ctx, 0.5f, 0.0f, 0.0f, 1.0f);
+          }
+          SDL_RenderLine(impl->ctx, cx, cy, mx, my);
 
           blit = true;
         }
@@ -142,6 +166,19 @@ LAUNCHER_API B8 Launcher_Step(Launcher* launcher) {
       } else {
         Log_Error("failed to present frame: %s", SDL_GetError());
       }
+
+      // Post frame
+      for (Index i = 0; i < CountOf(input->mouse.btn); ++i) {
+        input->mouse.btn[i].pressed = input->mouse.btn[i].released = false;
+      }
+      for (Index i = 0; i < CountOf(input->keyboard.key); ++i) {
+        input->keyboard.key[i].pressed = input->keyboard.key[i].released = false;
+      }
+      for (Index g = 0; g < CountOf(input->gamepad); ++g) {
+        for (Index i = 0; i < CountOf(input->gamepad[g].btn); ++i) {
+          input->gamepad[g].btn[i].pressed = input->gamepad[g].btn[i].released = false;
+        }
+      }
     } else {
       Log_Error("launcher implementation is NULL");
     }
@@ -157,7 +194,8 @@ LAUNCHER_API B8 Launcher_Event(Launcher* launcher, Handle rawEvent) {
 
   if (launcher) {
     if (launcher->impl) {
-      LauncherImpl* impl = launcher->impl;
+      LauncherImpl* impl  = launcher->impl;
+      Input*        input = &launcher->input;
 
       if (rawEvent) {
         SDL_Event* event = rawEvent;
@@ -169,6 +207,11 @@ LAUNCHER_API B8 Launcher_Event(Launcher* launcher, Handle rawEvent) {
 
             // Window
 
+          case SDL_EVENT_WINDOW_MOVED: {
+            launcher->rect.pos.x = (F32)event->window.data1;
+            launcher->rect.pos.y = (F32)event->window.data2;
+          } break;
+
           case SDL_EVENT_WINDOW_RESIZED: {
             F32 winScale = SDL_GetWindowPixelDensity(impl->win);
 
@@ -176,6 +219,55 @@ LAUNCHER_API B8 Launcher_Event(Launcher* launcher, Handle rawEvent) {
             launcher->rect.size.y = (F32)event->window.data2 * winScale;
 
             Launcher_UpdateVP(launcher);
+          } break;
+
+            // Input
+          case SDL_EVENT_MOUSE_MOTION: {
+            SDL_MouseMotionEvent* mme = &event->motion;
+
+            F32 pixelDensity = SDL_GetWindowPixelDensity(impl->win);
+
+            input->mouse.pos.x = (F32)mme->x * pixelDensity;
+            input->mouse.pos.y = (F32)mme->y * pixelDensity;
+
+            input->mouse.delta.x = (F32)mme->xrel * pixelDensity;
+            input->mouse.delta.y = (F32)mme->yrel * pixelDensity;
+          } break;
+
+          case SDL_EVENT_MOUSE_WHEEL: {
+            SDL_MouseWheelEvent* mwe = &event->wheel;
+
+            input->mouse.wheel.value     = (F32)mwe->y;
+            input->mouse.wheel.delta     = (F32)mwe->y;
+            input->mouse.wheel.threshold = 1.0f;
+          } break;
+
+          case SDL_EVENT_MOUSE_BUTTON_DOWN:
+          case SDL_EVENT_MOUSE_BUTTON_UP:   {
+            SDL_MouseButtonEvent* mbe = &event->button;
+
+            MouseBtn btn = Input_MouseBtnFromRaw(mbe->button);
+
+            B8 wasDown = input->mouse.btn[btn].down;
+            B8 isDown  = mbe->down;
+
+            input->mouse.btn[btn].down     = isDown;
+            input->mouse.btn[btn].pressed  = !wasDown && isDown;
+            input->mouse.btn[btn].released = wasDown && !isDown;
+          } break;
+
+          case SDL_EVENT_KEY_DOWN:
+          case SDL_EVENT_KEY_UP:   {
+            SDL_KeyboardEvent* kbe = &event->key;
+
+            KeyboardKey key = Input_KeyboardKeyFromRaw(kbe->scancode);
+
+            B8 wasDown = input->keyboard.key[key].down;
+            B8 isDown  = kbe->down;
+
+            input->keyboard.key[key].down     = isDown;
+            input->keyboard.key[key].pressed  = !wasDown && isDown;
+            input->keyboard.key[key].released = wasDown && !isDown;
           } break;
         }
 

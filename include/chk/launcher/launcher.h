@@ -5,6 +5,8 @@
 #include <chk/core/types.h>
 #include <chk/core/vec.h>
 
+#include <chk/launcher/input.h>
+
 typedef struct LauncherImpl LauncherImpl;
 
 typedef struct Launcher {
@@ -19,6 +21,8 @@ typedef struct Launcher {
   V4 rect;
   V4 vp;
   V2 res;
+
+  Input input;
 
   LauncherImpl* impl;
 } Launcher;
