@@ -6,6 +6,7 @@
 #include <chk/core/vec.h>
 
 #include <chk/launcher/input.h>
+#include <chk/launcher/timer.h>
 
 typedef struct LauncherImpl LauncherImpl;
 
@@ -22,6 +23,7 @@ typedef struct Launcher {
   V4 vp;
   V2 res;
 
+  Timer timer;
   Input input;
 
   LauncherImpl* impl;

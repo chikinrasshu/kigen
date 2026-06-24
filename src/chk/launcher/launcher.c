@@ -1,6 +1,6 @@
-#include "SDL3/SDL_mouse.h"
 #include <chk/launcher/launcher.h>
 
+#include <chk/core/color.h>
 #include <chk/core/log.h>
 #include <chk/core/math.h>
 
@@ -64,9 +64,13 @@ LAUNCHER_API B8 Launcher_Init(Launcher* launcher, CStr title, V2 size, V2 res) {
         if (Launcher_UpdateVP(launcher)) {
           if (Launcher_UpdateRT(launcher)) {
             if (SDL_ShowWindow(impl->win)) {
-              launcher->isRunning = true;
+              if (Timer_Init(&launcher->timer)) {
+                launcher->isRunning = true;
 
-              result = true;
+                result = true;
+              } else {
+                Log_Error("Failed to initialize timer");
+              }
             } else {
               Log_Error("Failed to show window: %s", SDL_GetError());
             }
@@ -96,6 +100,8 @@ LAUNCHER_API B8 Launcher_Destroy(Launcher* launcher) {
     if (launcher->impl) {
       LauncherImpl* impl = launcher->impl;
 
+      Timer_Destroy(&launcher->timer);
+
       if (impl->rt) { SDL_DestroyTexture(impl->rt), impl->rt = NULL; }
       if (impl->ctx) { SDL_DestroyRenderer(impl->ctx), impl->ctx = NULL; }
       if (impl->win) { SDL_DestroyWindow(impl->win), impl->win = NULL; }
@@ -119,19 +125,29 @@ LAUNCHER_API B8 Launcher_Step(Launcher* launcher) {
     if (launcher->impl) {
       LauncherImpl* impl  = launcher->impl;
       Input*        input = &launcher->input;
+      Timer*        timer = &launcher->timer;
 
       // Pre frame
+      Timer_Update(&launcher->timer);
+
       V2  oldMousePos  = input->mouse.pos;
       F32 pixelDensity = SDL_GetWindowPixelDensity(impl->win);
       SDL_GetGlobalMouseState(&input->mouse.pos.x, &input->mouse.pos.y);
       input->mouse.pos   = V2_Scale(V2_Sub(input->mouse.pos, launcher->rect.pos), pixelDensity);
       input->mouse.delta = V2_Sub(input->mouse.pos, oldMousePos);
 
+      // Cycle bg color for fun
+      static RGBA bgCol = {0.1f, 0.2f, 0.3f, 1.0f};
+      HSLA        bgHue = HSLA_FromRGBA(bgCol);
+      bgHue.h += 0.25f * timer->deltaTime;
+      if (bgHue.h > 1.0f) { bgHue.h -= 1.0f; }
+      bgCol = RGBA_FromHSLA(bgHue);
+
       // Render frame
       B8 blit = false;
       if (impl->rt) {
         if (SDL_SetRenderTarget(impl->ctx, impl->rt)) {
-          SDL_SetRenderDrawColorFloat(impl->ctx, 0.1f, 0.2f, 0.3f, 1.0f);
+          SDL_SetRenderDrawColorFloat(impl->ctx, bgCol.r, bgCol.g, bgCol.b, bgCol.a);
           SDL_RenderClear(impl->ctx);
 
           F32 cx = launcher->res.w * 0.5f;

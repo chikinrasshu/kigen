@@ -8,6 +8,7 @@ find_package(SDL3 CONFIG REQUIRED)
 
 chk_add(NAME Core KIND lib
     HDR
+    "color.h"
     "fmt.h"
     "log.h"
     "math.h"
@@ -15,6 +16,7 @@ chk_add(NAME Core KIND lib
     "vec.h"
 
     SRC
+    "color.c"
     "fmt.c"
     "log.c"
     "math.c"
@@ -28,10 +30,12 @@ chk_add(NAME Launcher KIND lib
     HDR
     "launcher.h"
     "input.h"
+    "timer.h"
 
     SRC
     "launcher.c"
     "input.c"
+    "timer.c"
 
     PUB
     chk::Core
